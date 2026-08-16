@@ -1,0 +1,10 @@
+# dsh-balance-panel bundle patch.
+#
+# 一行 loader 同时提供 Host / Client 两个半身：
+#   - Host 半身：lib/host.js 在回环 webServer 上注册 /model-balance 路由，
+#     枚举全部已配置的模型 Provider、解析凭证（密钥不出进程）、查询余额接口。
+#   - 浏览器半身：client-modules 通过 `dsh.client` + `exports["./client"]`
+#     发现 lib/client.js（侧边栏底部余额入口 + 悬浮余额面板）。
+- insert:
+    - id: model-balance
+      name: 'dsh-balance-panel'
