@@ -104,10 +104,19 @@ pnpm dsh web --patch ./cordis.patch.yml
 
 ## 支持的余额接口与自定义
 
-| Provider | 余额接口 | 说明 |
-| --- | --- | --- |
-| `deepseek-official` / `deepseek` | `GET {baseURL}/user/balance`（Bearer） | 内置，开箱即用 |
-| 其他 OpenAI 兼容 Provider | 无标准接口 | 默认显示「不支持」，可自定义（见下） |
+| Provider（id 或 baseURL 家族自动匹配） | 余额接口 | 类型 | 说明 |
+| --- | --- | --- | --- |
+| `deepseek` / `deepseek-official` | `GET {base}/user/balance` | 余额（¥） | 内置，开箱即用 |
+| `stepfun`（`*.stepfun.com`） | `GET {base}/accounts` | 余额（¥） | 官方接口 |
+| `kimi-coding`（`api.kimi.com`） | `GET {base}/v1/usages` | 配额（周+小时） | 官方接口，含额度维度与重置时间 |
+| `openrouter`（`openrouter.ai`） | `GET {base}/api/v1/auth/key` | Credit（$） | 官方接口 |
+| `minimax`（`api.minimax.chat`） | `GET {base}/v1/token_plan/remains` | 剩余额度 | 官方接口 |
+| `xai` / `grok`（`api.x.ai`） | `GET {base}/v1/dashboard/billing/credit_grants` | Credit（$） | 官方接口 |
+| `qwen-token-plan-cn` 等（百炼/dashscope） | 无 API | 需登录 | 面板显示「去控制台查看余额」链接 |
+| `xiaomi`（xiaomimimo） | 无 API | 需登录 | 同上 |
+| 其他 OpenAI 兼容 Provider | 无标准接口 | 不支持 | 可自定义（见下） |
+
+> 策略匹配顺序：**profile 自定义 `balance` 配置 > provider id（含别名，大小写不敏感）> baseURL 家族正则**。所以用网关代理了 StepFun/Kimi 等官方端点时，只要 baseURL 域名匹配就会自动命中对应解析器；密钥引用可用配置的 `apiKeyEnv`，缺省回退到各策略默认的环境变量名（如 `STEPFUN_API_KEY`、`OPENROUTER_API_KEY`）。
 
 **为任意 Provider 自定义余额接口**：在 settings 中该 Provider 的 profile 里加一个 `balance` 字段：
 

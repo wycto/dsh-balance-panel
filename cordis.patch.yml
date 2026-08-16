@@ -6,5 +6,5 @@
 #   - 浏览器半身：client-modules 通过 `dsh.client` + `exports["./client"]`
 #     发现 lib/client.js（侧边栏底部余额入口 + 悬浮余额面板）。
 - insert:
-    - id: model-balance
+    - id: balance-panel
       name: 'dsh-balance-panel'

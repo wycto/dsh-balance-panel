@@ -79,7 +79,7 @@ function useStore() {
 
 const fmt = (v) => (v == null || v === '' ? '—' : String(v))
 const isDefault = (data, id) => data && data.default && data.default.provider === id
-const hasBalance = (p) => p && p.balance && p.balance.status === 'ok' && Array.isArray(p.balance.infos) && p.balance.infos.length > 0
+const hasBalance = (p) => p && p.balance && p.balance.status === 'ok'
 
 /** 胶囊要展示的 Provider：优先当前使用模型（默认 Provider），不可查时回退到第一个可查的。 */
 function pillProvider(data) {
@@ -130,6 +130,8 @@ const CSS = '' +
   '.mb-balance-cur{font-weight:600;min-width:44px}' +
   '.mb-balance-total{font-weight:600}' +
   '.mb-balance-part{font-size:12px}' +
+  '.mb-link{font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:4px}' +
+  '.mb-link:hover{text-decoration:underline}' +
   '.mb-msg{color:var(--dsw-alias-label-tertiary,#9a9aa2);font-size:12px;margin:8px 0}' +
   '.mb-error-text{color:var(--dsw-alias-state-error-primary,#f87171)}'
 
@@ -153,6 +155,62 @@ function apply(ctx) {
 
   insertStyles()
 
+  /** 卡片主体：配额 / 货币余额 / 登录跳转 / 提示信息。 */
+  function balanceBody(b, infos, accent) {
+    if (b && b.status === 'ok' && b.kind === 'quota') {
+      const dimRows = Array.isArray(b.dims) && b.dims.length > 0
+        ? b.dims.map((d, i) =>
+            React.createElement('div', { key: i, className: 'mb-balance' },
+              React.createElement('span', { className: 'mb-balance-cur', style: { color: accent } },
+                d.window === 'weekly' ? '周额度' : '小时额度'),
+              React.createElement('span', { className: 'mb-balance-total', style: { color: C_TOTAL } }, `剩余 ${fmt(d.remaining)}`),
+              React.createElement('span', { className: 'mb-balance-part' }, `已用 ${fmt(d.used)} / ${fmt(d.limit)}`),
+              d.resetTime
+                ? React.createElement('span', { className: 'mb-balance-part' }, `重置 ${String(d.resetTime).slice(0, 16)}`)
+                : null,
+            ),
+          )
+        : null
+      return React.createElement('div', { className: 'mb-balances' },
+        React.createElement('div', { className: 'mb-balance' },
+          React.createElement('span', { className: 'mb-balance-cur', style: { color: accent } }, '总额度'),
+          React.createElement('span', { className: 'mb-balance-total', style: { color: C_TOTAL } },
+            `剩余 ${fmt(b.remaining)}${b.unit ? ` ${b.unit}` : ''}`),
+          React.createElement('span', { className: 'mb-balance-part' }, `已用 ${fmt(b.used)} / 总 ${fmt(b.limit)}`),
+          b.resetTime
+            ? React.createElement('span', { className: 'mb-balance-part' }, `重置 ${String(b.resetTime).slice(0, 16)}`)
+            : null,
+        ),
+        dimRows,
+      )
+    }
+    if (b && b.status === 'login-required' && b.consoleUrl) {
+      return React.createElement('div', { className: 'mb-balances' },
+        React.createElement('a', { href: b.consoleUrl, target: '_blank', rel: 'noreferrer', className: 'mb-link', style: { color: accent } },
+          '去控制台查看余额 →'),
+      )
+    }
+    if (infos.length > 0) {
+      return React.createElement('div', { className: 'mb-balances' },
+        infos.map((i, idx) =>
+          React.createElement('div', { key: idx, className: 'mb-balance' },
+            React.createElement('span', { className: 'mb-balance-cur', style: { color: accent } }, i.currency),
+            React.createElement('span', { className: 'mb-balance-total', style: { color: C_TOTAL } }, `总额 ${fmt(i.totalBalance)}`),
+            i.grantedBalance != null
+              ? React.createElement('span', { className: 'mb-balance-part', style: { color: C_GRANTED } }, `赠送 ${fmt(i.grantedBalance)}`)
+              : null,
+            i.toppedUpBalance != null
+              ? React.createElement('span', { className: 'mb-balance-part', style: { color: C_TOPUP } }, `充值 ${fmt(i.toppedUpBalance)}`)
+              : null,
+          ),
+        ),
+      )
+    }
+    return b && b.message
+      ? React.createElement('div', { className: 'mb-msg' }, b.message)
+      : null
+  }
+
   /** 单个 Provider 卡片（三处复用），带独立主题色。 */
   function ProviderCard(p) {
     const accent = accentOf(p.id)
@@ -164,6 +222,7 @@ function apply(ctx) {
       if (b.status === 'ok') { statusText = '可用'; statusClass = 'mb-badge mb-ok'; statusStyle = { color: C_OK, borderColor: C_OK } }
       else if (b.status === 'unsupported') { statusText = '不支持'; statusClass = 'mb-badge' }
       else if (b.status === 'no-credential') { statusText = '未配置密钥'; statusClass = 'mb-badge mb-warn' }
+      else if (b.status === 'login-required') { statusText = '需登录'; statusClass = 'mb-badge mb-warn' }
       else { statusText = '查询失败'; statusClass = 'mb-badge mb-error'; statusStyle = { color: C_ERR, borderColor: C_ERR } }
     }
     const infos = b && b.status === 'ok' && Array.isArray(b.infos) ? b.infos : []
@@ -190,24 +249,7 @@ function apply(ctx) {
               React.createElement('span', { key: m, className: 'mb-chip', style: { border: '1px solid ' + accent, color: accent, background: accent + '1a' } }, m)),
           )
         : null,
-      infos.length > 0
-        ? React.createElement('div', { className: 'mb-balances' },
-            infos.map((i, idx) =>
-              React.createElement('div', { key: idx, className: 'mb-balance' },
-                React.createElement('span', { className: 'mb-balance-cur', style: { color: accent } }, i.currency),
-                React.createElement('span', { className: 'mb-balance-total', style: { color: C_TOTAL } }, `总额 ${fmt(i.totalBalance)}`),
-                i.grantedBalance != null
-                  ? React.createElement('span', { className: 'mb-balance-part', style: { color: C_GRANTED } }, `赠送 ${fmt(i.grantedBalance)}`)
-                  : null,
-                i.toppedUpBalance != null
-                  ? React.createElement('span', { className: 'mb-balance-part', style: { color: C_TOPUP } }, `充值 ${fmt(i.toppedUpBalance)}`)
-                  : null,
-              ),
-            ),
-          )
-        : (b && b.message
-            ? React.createElement('div', { className: 'mb-msg' }, b.message)
-            : null),
+      balanceBody(b, infos, accent),
     )
   }
 
@@ -269,11 +311,21 @@ function apply(ctx) {
     } else if (data && Array.isArray(data.providers) && data.providers.length > 0) {
       const chosen = pillProvider(data)
       if (chosen && hasBalance(chosen)) {
-        const info = chosen.balance.infos[0]
-        label = wide ? `余额 ${fmt(info.totalBalance)}${info.currency ? ` ${info.currency}` : ''}` : '¥'
         stateClass = 'mb-pill' + (wide ? '' : ' mb-pill-rail')
         style = { color: C_OK, borderColor: C_OK + '66', background: C_OK + '14' }
-        tip = `${chosen.displayName} 余额 ${fmt(info.totalBalance)}${info.currency ? ` ${info.currency}` : ''}，点击查看全部`
+        if (chosen.balance.kind === 'quota') {
+          label = wide ? `剩余 ${fmt(chosen.balance.remaining)}` : '¥'
+          tip = `${chosen.displayName} 剩余 ${fmt(chosen.balance.remaining)}${chosen.balance.unit ? ` ${chosen.balance.unit}` : ''}，点击查看全部`
+        } else {
+          const info = chosen.balance.infos ? chosen.balance.infos[0] : null
+          if (info) {
+            label = wide ? `余额 ${fmt(info.totalBalance)}${info.currency ? ` ${info.currency}` : ''}` : '¥'
+            tip = `${chosen.displayName} 余额 ${fmt(info.totalBalance)}${info.currency ? ` ${info.currency}` : ''}，点击查看全部`
+          } else {
+            label = wide ? '余额 —' : '¥'
+            tip = `${chosen.displayName} 暂无可查余额，点击查看全部`
+          }
+        }
       } else {
         label = wide ? '余额 —' : '¥'
         tip = `${chosen ? chosen.displayName + ' 暂无可查余额' : '暂无可查余额'}，点击查看全部`

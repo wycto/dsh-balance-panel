@@ -1,24 +1,28 @@
 /**
- * dsh-model-balance — Host 半身。
+ * dsh-balance-panel — Host 半身。
  *
  * 职责：
  *  1. 枚举当前 DSH 配置的所有模型 Provider（可配置 Provider 目录 + 默认模型回退）；
  *  2. 通过凭证服务解析每个 Provider 的 API Key（密钥全程留在进程内，不出 Host）；
- *  3. 按余额策略查询各账号余额（内置 DeepSeek /user/balance，或 profile.balance 自定义）；
+ *  3. 按余额策略查询各账号余额/配额（内置 DeepSeek / StepFun / Kimi / OpenRouter /
+ *     MiniMax / xAI 策略 + profile.balance 自定义 + 登录跳转）；
  *  4. 在回环 webServer 上注册 GET /model-balance，返回归一化的 JSON 给浏览器半身。
  *
- * 依赖：webServer（硬依赖，挂载本插件的路由）、settings / llm / credentials /
- * agentDefaultModel（可选读取，缺失时优雅降级）。
+ * 依赖：webServer（硬依赖），settings / llm / credentials / agentDefaultModel（可选）。
  *
- * @module dsh-model-balance/host
+ * @module dsh-balance-panel/host
  */
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 
 /** Cordis 插件名。 */
-export const name = 'model-balance'
+export const name = 'balance-panel'
 
 /** 硬依赖：路由需要 webServer 服务。 */
 export const inject = ['webServer']
+
+// ---------------------------------------------------------------------------
+// 余额策略表（借鉴社区 dsh-model-balance 的策略实现，均为官方 Bearer 计费接口）
+// ---------------------------------------------------------------------------
 
 /** deepseek-official 内置默认值（适配器默认配置的镜像，配置缺失时兜底）。 */
 const DEEPSEEK_DEFAULTS = {
@@ -26,45 +30,247 @@ const DEEPSEEK_DEFAULTS = {
   baseURL: 'https://api.deepseek.com',
 }
 
-/**
- * 每个 Provider 的余额查询策略。
- * 优先级：provider 配置里的 `balance.endpoint` 自定义 > 内置映射。
- * @param providerId - provider 路由 id。
- * @param profile - 该 provider 的 settings profile（可为 undefined）。
- * @returns 策略对象或 null（不支持）。
- */
-function balanceStrategy(providerId, profile) {
-  const b = profile && typeof profile.balance === 'object' && profile.balance !== null
-    ? profile.balance
-    : null
-  if (b && typeof b.endpoint === 'string' && b.endpoint) {
-    return { endpoint: b.endpoint, auth: b.auth === 'none' ? 'none' : 'bearer' }
+function parseDeepSeek(body) {
+  const infos = body && Array.isArray(body.balance_infos) ? body.balance_infos : []
+  if (infos.length === 0) return { status: 'error', message: '无法识别的余额响应' }
+  const entry = infos.find((i) => i && i.currency === 'CNY') || infos[0]
+  const total = Number(entry && entry.total_balance)
+  if (!Number.isFinite(total)) return { status: 'error', message: '余额不是数字' }
+  return {
+    status: 'ok',
+    kind: 'currency',
+    available: body.is_available !== false,
+    infos: [{
+      currency: typeof entry.currency === 'string' ? entry.currency : 'CNY',
+      totalBalance: String(total),
+      grantedBalance: String(Number(entry.granted_balance) || 0),
+      toppedUpBalance: String(Number(entry.topped_up_balance) || 0),
+    }],
   }
-  if (providerId === 'deepseek-official' || providerId === 'deepseek') {
-    return { endpoint: '/user/balance', auth: 'bearer' }
+}
+
+function parseStepFun(body) {
+  const balance = Number(body && body.balance)
+  if (!Number.isFinite(balance)) return { status: 'error', message: '无法识别的 StepFun 账户响应' }
+  return {
+    status: 'ok',
+    kind: 'currency',
+    infos: [{
+      currency: 'CNY',
+      totalBalance: String(balance),
+      grantedBalance: String(Number(body.total_voucher_balance) || 0),
+      toppedUpBalance: String(Number(body.total_cash_balance) || 0),
+    }],
   }
-  return null
+}
+
+function parseKimiCoding(body) {
+  const usage = body && body.usage
+  const limit = Number(usage && usage.limit)
+  const used = Number(usage && usage.used)
+  const remaining = Number(usage && usage.remaining)
+  if (!Number.isFinite(limit) || !Number.isFinite(used) || !Number.isFinite(remaining)) {
+    return { status: 'error', message: '无法识别的 Kimi 配额响应' }
+  }
+  const dims = [{
+    window: 'weekly',
+    limit,
+    used,
+    remaining,
+    resetTime: typeof usage.resetTime === 'string' ? usage.resetTime : null,
+  }]
+  const limits = Array.isArray(body.limits) ? body.limits : []
+  if (limits.length > 0 && limits[0] && limits[0].detail) {
+    const d = limits[0].detail
+    const hLimit = Number(d.limit)
+    const hUsed = Number(d.used)
+    const hRemaining = Number(d.remaining)
+    if (Number.isFinite(hLimit) && Number.isFinite(hUsed) && Number.isFinite(hRemaining)) {
+      dims.push({
+        window: 'hourly',
+        limit: hLimit,
+        used: hUsed,
+        remaining: hRemaining,
+        resetTime: typeof d.resetTime === 'string' ? d.resetTime : null,
+      })
+    }
+  }
+  return {
+    status: 'ok',
+    kind: 'quota',
+    unit: 'requests',
+    limit,
+    used,
+    remaining,
+    resetTime: typeof usage.resetTime === 'string' ? usage.resetTime : null,
+    dims,
+  }
+}
+
+function parseOpenRouter(body) {
+  const data = body && body.data
+  if (!data) return { status: 'error', message: '无法识别的 OpenRouter 响应' }
+  // OpenRouter 返回的是美分
+  const limitCents = Number(data.limit)
+  const usageCents = Number(data.usage)
+  if (!Number.isFinite(limitCents)) return { status: 'error', message: 'OpenRouter limit 不是数字' }
+  const balance = limitCents > 0 ? (limitCents - usageCents) / 100 : 0
+  return {
+    status: 'ok',
+    kind: 'currency',
+    infos: [{ currency: 'USD', totalBalance: String(Math.max(0, balance)) }],
+  }
+}
+
+function parseMiniMax(body) {
+  const remaining = Number(body && (body.data ?? body.remaining))
+  const total = Number(body && (body.total ?? body.limit))
+  if (!Number.isFinite(remaining)) return { status: 'error', message: '无法识别的 MiniMax 响应' }
+  return {
+    status: 'ok',
+    kind: 'quota',
+    unit: 'requests',
+    limit: Number.isFinite(total) ? total : 0,
+    used: Number.isFinite(total) && Number.isFinite(remaining) ? Math.max(0, total - remaining) : 0,
+    remaining,
+    dims: [],
+  }
+}
+
+function parseXai(body) {
+  const balance = Number(body && (body.balance ?? body.total_granted))
+  if (!Number.isFinite(balance)) return { status: 'error', message: '无法识别的 xAI 响应' }
+  return {
+    status: 'ok',
+    kind: 'currency',
+    infos: [{ currency: 'USD', totalBalance: String(balance) }],
+  }
+}
+
+/** 策略表：key 为规范 provider id，aliases 为别名。 */
+const STRATEGIES = {
+  deepseek: {
+    suffix: '/user/balance',
+    defaultBaseURL: 'https://api.deepseek.com',
+    defaultKeyEnv: 'DEEPSEEK_API_KEY',
+    parse: parseDeepSeek,
+    aliases: ['deepseek-official'],
+  },
+  stepfun: {
+    suffix: '/accounts',
+    defaultBaseURL: 'https://api.stepfun.com/v1',
+    defaultKeyEnv: 'STEPFUN_API_KEY',
+    parse: parseStepFun,
+  },
+  'kimi-coding': {
+    suffix: '/v1/usages',
+    defaultBaseURL: 'https://api.kimi.com/coding',
+    defaultKeyEnv: 'KIMI_API_KEY',
+    parse: parseKimiCoding,
+    aliases: ['kimi'],
+  },
+  openrouter: {
+    suffix: '/api/v1/auth/key',
+    defaultBaseURL: 'https://openrouter.ai',
+    defaultKeyEnv: 'OPENROUTER_API_KEY',
+    parse: parseOpenRouter,
+  },
+  minimax: {
+    suffix: '/v1/token_plan/remains',
+    defaultBaseURL: 'https://api.minimax.chat',
+    defaultKeyEnv: 'MINIMAX_API_KEY',
+    parse: parseMiniMax,
+  },
+  xai: {
+    suffix: '/v1/dashboard/billing/credit_grants',
+    defaultBaseURL: 'https://api.x.ai',
+    defaultKeyEnv: 'XAI_API_KEY',
+    parse: parseXai,
+    aliases: ['grok'],
+  },
+}
+
+/** provider id 别名 → 规范 key（大小写不敏感）。 */
+const KNOWN_IDS = new Map()
+for (const [canonical, s] of Object.entries(STRATEGIES)) {
+  KNOWN_IDS.set(canonical.toLowerCase(), canonical)
+  for (const alias of s.aliases || []) KNOWN_IDS.set(alias.toLowerCase(), canonical)
+}
+
+/** baseURL 家族 → 规范 key（自定义别名指向已知端点时自动命中）。 */
+const URL_MATCHERS = [
+  [/api\.deepseek\.com/i, 'deepseek'],
+  [/api\.stepfun\.com/i, 'stepfun'],
+  [/api\.kimi\.com/i, 'kimi-coding'],
+  [/openrouter\.ai/i, 'openrouter'],
+  [/api\.minimax\.chat/i, 'minimax'],
+  [/api\.x\.ai/i, 'xai'],
+  [/platform\.stepfun\.com/i, 'stepfun'],
+]
+
+/** 无 API 余额接口、需登录控制台查看的 Provider（id → 控制台 URL）。 */
+const LOGIN_REQUIRED_BY_ID = {
+  'qwen-token-plan-cn': 'https://bailian.console.aliyun.com/cn-beijing?tab=plan#/efm/subscription/token-plan/personal',
+  'qwen-token-plan': 'https://bailian.console.aliyun.com/cn-beijing?tab=plan#/efm/subscription/token-plan/personal',
+  'qwen-coding-plan': 'https://bailian.console.aliyun.com/cn-beijing?tab=plan#/efm/subscription/token-plan/personal',
+  xiaomi: 'https://platform.xiaomimimo.com/console/balance',
+}
+
+const LOGIN_REQUIRED_URLS = [
+  [/bailian\.console\.aliyun\.com|dashscope|aliyuncs\.com/i, 'https://bailian.console.aliyun.com/cn-beijing?tab=plan#/efm/subscription/token-plan/personal'],
+  [/xiaomimimo\.com/i, 'https://platform.xiaomimimo.com/console/balance'],
+]
+
+function stripSlash(url) {
+  return String(url).replace(/\/+$/, '')
 }
 
 /**
- * 解析 DeepSeek `/user/balance` 响应（`balance_infos` 数组）。
- * @param body - 接口返回的 JSON。
+ * 解析 Provider 的余额查询策略：先按 id（含别名）精确匹配，再按 baseURL 家族匹配。
+ * @returns {object|undefined} { url, keyEnv, parse }
  */
-function parseBalance(body) {
-  if (body && typeof body === 'object' && Array.isArray(body.balance_infos)) {
-    return {
-      status: 'ok',
-      available: body.is_available === true,
-      infos: body.balance_infos.map((i) => ({
-        currency: typeof i.currency === 'string' ? i.currency : '?',
-        totalBalance: i.total_balance != null ? String(i.total_balance) : null,
-        grantedBalance: i.granted_balance != null ? String(i.granted_balance) : null,
-        toppedUpBalance: i.topped_up_balance != null ? String(i.topped_up_balance) : null,
-      })),
+function matchStrategy(providerId, profile) {
+  const canonical = KNOWN_IDS.get(String(providerId).toLowerCase())
+  if (canonical !== undefined) {
+    const s = STRATEGIES[canonical]
+    const baseURL = profile && typeof profile.baseURL === 'string' ? profile.baseURL : s.defaultBaseURL
+    const keyEnv = profile && typeof profile.apiKeyEnv === 'string' ? profile.apiKeyEnv : s.defaultKeyEnv
+    return { url: `${stripSlash(baseURL)}${s.suffix}`, keyEnv, parse: s.parse }
+  }
+  const baseURL = profile && typeof profile.baseURL === 'string' ? profile.baseURL : undefined
+  if (baseURL !== undefined) {
+    for (const [pattern, key] of URL_MATCHERS) {
+      if (pattern.test(baseURL)) {
+        const s = STRATEGIES[key]
+        if (s) {
+          return {
+            url: `${stripSlash(baseURL)}${s.suffix}`,
+            keyEnv: profile && typeof profile.apiKeyEnv === 'string' ? profile.apiKeyEnv : s.defaultKeyEnv,
+            parse: s.parse,
+          }
+        }
+      }
     }
   }
-  return { status: 'error', message: '无法识别的余额响应' }
+  return undefined
 }
+
+/** 解析"需登录查看"的 Provider 控制台地址。 */
+function matchLoginRequired(providerId, profile) {
+  const byId = LOGIN_REQUIRED_BY_ID[String(providerId).toLowerCase()]
+  if (byId !== undefined) return byId
+  const baseURL = profile && typeof profile.baseURL === 'string' ? profile.baseURL : undefined
+  if (baseURL !== undefined) {
+    for (const [pattern, url] of LOGIN_REQUIRED_URLS) {
+      if (pattern.test(baseURL)) return url
+    }
+  }
+  return undefined
+}
+
+// ---------------------------------------------------------------------------
+// Provider 枚举与余额查询
+// ---------------------------------------------------------------------------
 
 /** 沿 settingsPath 走一层对象（user/base/value 都可用）。 */
 function walkPath(node, path) {
@@ -84,14 +290,9 @@ function modelsOf(profile) {
 
 /**
  * 枚举**已配置**的 Provider。
- *
  * 只保留真正配置过的 Provider：settings 的 user 层（用户自己写的）或 base 层
- * （部署层声明）里有该 Provider 的 profile，或者是默认模型选中的 Provider；
- * `listConfigurableProviders()` 返回的「注册或休眠」全量目录中其余条目一律跳过。
- *
- * 模型只取用户实际配置的（user 层优先，base 层次之）；schema 默认的模型列表
- * （如 deepseek 的全量模型 default）不会被带出来。默认 Provider 没有任何
- * 用户模型时只显示默认模型。
+ * （部署层声明）里有该 Provider 的 profile，或者是默认模型选中的 Provider。
+ * 模型只取用户实际配置的（user 层优先，base 层次之）；schema 默认模型列表不会带出。
  */
 function collectProviders(ctx) {
   const llm = ctx.get('llm')
@@ -118,7 +319,6 @@ function collectProviders(ctx) {
     const profileBase = desc ? walkPath(desc.base, e.settingsPath) : undefined
     const isDefaultProvider = !!(sel && sel.provider === e.provider)
 
-    // 只保留实际配置过的 Provider
     const configured = isDefaultProvider
       || (profileUser && typeof profileUser === 'object')
       || (profileBase && typeof profileBase === 'object')
@@ -170,10 +370,7 @@ function collectProviders(ctx) {
   return { providers: Array.from(out.values()), default: sel }
 }
 
-/**
- * 用宿主全局 fetch 发起带认证头的 GET 并解析 JSON。
- * 静态插件运行在完整 Node 进程中（Node 18+ 自带 fetch）。
- */
+/** 用宿主全局 fetch 发起带认证头的 GET 并解析 JSON。 */
 async function httpGetJson(url, auth, key) {
   if (typeof fetch !== 'function') {
     return { ok: false, error: '宿主进程没有全局 fetch' }
@@ -194,7 +391,29 @@ async function httpGetJson(url, auth, key) {
   }
 }
 
-/** 查询单个 Provider 的余额，产出给前端的归一化条目。 */
+async function resolveKey(ctx, keyEnv) {
+  if (!keyEnv) return null
+  try {
+    const credentials = ctx.get('credentials')
+    const hit = credentials ? await credentials.resolve(credentialRef(keyEnv)) : null
+    return hit && hit.value ? hit.value : null
+  } catch {
+    return null
+  }
+}
+
+async function queryEndpoint(ctx, spec, entry) {
+  if (spec.keyEnv && !spec.key) {
+    return { status: 'no-credential', message: `凭证 ${spec.keyEnv} 未配置` }
+  }
+  const res = await httpGetJson(spec.url, spec.auth, spec.key)
+  if (!res.ok) return { status: 'error', message: res.error }
+  const parsed = spec.parse(res.body)
+  if (parsed.status === 'ok') entry.credentialConfigured = true
+  return parsed
+}
+
+/** 查询单个 Provider 的余额/配额/登录地址，产出给前端的归一化条目。 */
 async function queryProviderBalance(ctx, p) {
   const entry = {
     id: p.id,
@@ -206,7 +425,7 @@ async function queryProviderBalance(ctx, p) {
     credentialConfigured: false,
     balance: null,
   }
-  // 先报告密钥配置状态（describe 不读取值，任何 Provider 都适用）
+  // 先报告密钥配置状态（describe 不读取值）
   if (p.apiKeyEnv) {
     try {
       const credentials = ctx.get('credentials')
@@ -216,36 +435,46 @@ async function queryProviderBalance(ctx, p) {
       // 保持 false
     }
   }
-  const strat = balanceStrategy(p.id, p.profile)
-  if (!strat) {
-    entry.balance = { status: 'unsupported', message: '该 Provider 没有已知的余额查询接口' }
+
+  // 1) 自定义 balance 配置优先
+  const custom = p.profile && typeof p.profile.balance === 'object' && p.profile.balance !== null
+    ? p.profile.balance
+    : null
+  if (custom && typeof custom.endpoint === 'string' && custom.endpoint) {
+    entry.balance = await queryEndpoint(ctx, {
+      url: /^https?:\/\//.test(custom.endpoint)
+        ? custom.endpoint
+        : `${(p.baseURL || '').replace(/\/+$/, '')}${custom.endpoint}`,
+      auth: custom.auth === 'none' ? 'none' : 'bearer',
+      keyEnv: p.apiKeyEnv,
+      parse: parseDeepSeek,
+      key: p.apiKeyEnv ? await resolveKey(ctx, p.apiKeyEnv) : null,
+    }, entry)
     return entry
   }
-  if (!p.apiKeyEnv) {
-    entry.balance = { status: 'no-credential', message: '未配置 apiKeyEnv，无法查询余额' }
+
+  // 2) 内置策略表（id 别名 + baseURL 家族）
+  const strat = matchStrategy(p.id, p.profile)
+  if (strat) {
+    entry.balance = await queryEndpoint(ctx, {
+      url: strat.url,
+      auth: 'bearer',
+      keyEnv: strat.keyEnv,
+      parse: strat.parse,
+      key: await resolveKey(ctx, strat.keyEnv),
+    }, entry)
     return entry
   }
-  let hit = null
-  try {
-    const credentials = ctx.get('credentials')
-    hit = credentials ? await credentials.resolve(credentialRef(p.apiKeyEnv)) : null
-  } catch {
-    // 解析失败按未配置处理
-  }
-  if (!hit || !hit.value) {
-    entry.balance = { status: 'no-credential', message: `凭证 ${p.apiKeyEnv} 未配置` }
+
+  // 3) 登录跳转（无 API 接口但有控制台）
+  const consoleUrl = matchLoginRequired(p.id, p.profile)
+  if (consoleUrl) {
+    entry.balance = { status: 'login-required', consoleUrl }
     return entry
   }
-  entry.credentialConfigured = true
-  const url = /^https?:\/\//.test(strat.endpoint)
-    ? strat.endpoint
-    : `${(p.baseURL || DEEPSEEK_DEFAULTS.baseURL).replace(/\/+$/, '')}${strat.endpoint}`
-  const res = await httpGetJson(url, strat.auth, hit.value)
-  if (!res.ok) {
-    entry.balance = { status: 'error', message: res.error }
-    return entry
-  }
-  entry.balance = parseBalance(res.body)
+
+  // 4) 不支持
+  entry.balance = { status: 'unsupported', message: '该 Provider 没有已知的余额查询接口' }
   return entry
 }
 
