@@ -1,6 +1,6 @@
 # dsh-balance-panel · DSH 模型余额面板
 
-> 仓库名 `dsh-model-balance`；npm 包名 **`dsh-balance-panel`**（`dsh-model-balance` 在 npm 已被同名插件占用）。
+> 仓库名 `dsh-model-balance`；npm 包名 **`@wycto/dsh-balance-panel`**（scoped 命名，绑定 npm 账号 wycto，杜绝包名冲突；旧无前缀名 `dsh-balance-panel` 已废弃）。
 > DeepSeek Harness 插件：在侧边栏底部显示当前 DSH 配置的**所有**模型 Provider 的账号余额，
 > 点击打开余额面板查看每个 Provider 的模型列表、密钥状态与余额明细。
 
@@ -65,10 +65,10 @@ dsh-balance-panel/
 ### 方式一：profile 用户（推荐，`dsh` CLI）
 
 ```sh
-dsh plugin --profile web add dsh-balance-panel
+dsh plugin --profile web add @wycto/dsh-balance-panel
 ```
 
-> 等价于在 `~/.dsh/profiles/web` 里执行 `pnpm add dsh-balance-panel`。
+> 等价于在 `~/.dsh/profiles/web` 里执行 `pnpm add @wycto/dsh-balance-panel`。
 > 包声明了 `dsh.bundle.patch`，装好后会自动进入插件的 layer 栈并生效。
 
 重启 Web UI（或刷新 `http://127.0.0.1:3080`）。
@@ -156,8 +156,8 @@ A：确认插件已加载（启动日志应出现 dsh-balance-panel 相关行）
 再确认部署的 Web 是回环访问（localhost），`/dsh-balance-panel` 路由只在回环 webServer 上注册。
 
 **Q：没有 pnpm，`dsh plugin` 用不了？**
-A：npm 同样可以：`cd ~/.dsh/profiles/<profile名> && npm install dsh-balance-panel`，
-然后把 `"dsh-balance-panel"` 追加到该目录 `package.json` 的 `dsh.profile.bundles` 列表，重启即可
+A：npm 同样可以：`cd ~/.dsh/profiles/<profile名> && npm install @wycto/dsh-balance-panel`，
+然后把 `"@wycto/dsh-balance-panel"` 追加到该目录 `package.json` 的 `dsh.profile.bundles` 列表，重启即可
 （等价于 `dsh plugin add` 的效果）。
 
 ## 开发与构建
@@ -176,7 +176,7 @@ npm run build          # 重新生成 lib/client.js（src/client.js → __Module
    关键元数据已就位：`dsh.bundle.patch`（自动进 layer 栈）、`dsh.client`（浏览器半身发现）、
    `files`（只发布必要文件）。
 2. **开源 GitHub**：`git init && git add . && git commit`，推到你的仓库，附上本 README 与截图。
-3. 用户安装只需一条命令：`dsh plugin --profile web add dsh-balance-panel`。
+3. 用户安装只需一条命令：`dsh plugin --profile web add @wycto/dsh-balance-panel`。
 
 ## License
 

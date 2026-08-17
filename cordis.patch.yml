@@ -9,4 +9,4 @@
 # loader id 与包名保持一致（dsh-balance-panel），避免与其他插件的行 id 冲突。
 - insert:
     - id: dsh-balance-panel
-      name: 'dsh-balance-panel'
+      name: '@wycto/dsh-balance-panel'
