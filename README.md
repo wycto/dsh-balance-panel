@@ -25,7 +25,7 @@
 │  tool.view.cordis        ← Run 卡片内嵌余额视图（最新一次运行卡片内）                     │
 │  sidebar.footer.action   ← 余额胶囊（摘要 + 点击开面板）                                  │
 │  shell.overlay           ← 余额面板（已配置的 Provider / 模型 / 余额）                    │
-│          │  GET /model-balance（同源 fetch，每 5 分钟 + 手动刷新）                          │
+│          │  GET /dsh-balance-panel（同源 fetch，每 5 分钟 + 手动刷新）                          │
 └──────────┼───────────────────────────────────────────────────────────────────────────────┘
            ▼
 ┌────────────────────────── Host 进程（Host 半身 lib/host.js）─────────────────────────────┐
@@ -33,7 +33,7 @@
 │ 2. settings.describe({redactSecrets}) → 按 user/base 层定位已配置 profile（默认值不算）   │
 │ 3. credentials.describe/resolve    →  密钥状态 / 密钥值（只在本进程内使用）               │
 │ 4. 余额策略 → fetch 余额接口（DeepSeek /user/balance 或 profile.balance 自定义）          │
-│ 5. webServer 注册 GET /model-balance，返回归一化 JSON                                     │
+│ 5. webServer 注册 GET /dsh-balance-panel，返回归一化 JSON                                     │
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,9 +42,9 @@
 ```
 dsh-balance-panel/
 ├── package.json           # npm 包元数据 + dsh 元数据（bundle.patch / client.inject）
-├── cordis.patch.yml       # 插件加载行（- insert: { id: model-balance, name: 包名 }）
+├── cordis.patch.yml       # 插件加载行（- insert: { id: dsh-balance-panel, name: 包名 }）
 ├── lib/                   # 发布产物（files 只发布 lib/ + 上述文件）
-│   ├── host.js            #   Host 半身（ESM；Node 全局 fetch；注册 /model-balance 路由）
+│   ├── host.js            #   Host 半身（ESM；Node 全局 fetch；注册 /dsh-balance-panel 路由）
 │   └── client.js          #   浏览器半身（__ModuleLoader__ 格式 bundle，由 src/client.js 生成）
 ├── src/                   # 源码
 │   ├── host.js            #   Host 半身源码（= lib/host.js）
@@ -152,8 +152,8 @@ A：密钥只通过 `credentials.resolve` 在 Host 进程内解析使用，余�
 浏览器端拿到的只是余额结果，密钥不会进入任何前端或日志。
 
 **Q：面板打不开 / 胶囊不出现？**
-A：确认插件已加载（启动日志应出现 model-balance 相关行），并刷新页面；
-再确认部署的 Web 是回环访问（localhost），`/model-balance` 路由只在回环 webServer 上注册。
+A：确认插件已加载（启动日志应出现 dsh-balance-panel 相关行），并刷新页面；
+再确认部署的 Web 是回环访问（localhost），`/dsh-balance-panel` 路由只在回环 webServer 上注册。
 
 **Q：没有 pnpm，`dsh plugin` 用不了？**
 A：npm 同样可以：`cd ~/.dsh/profiles/<profile名> && npm install dsh-balance-panel`，

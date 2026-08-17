@@ -36,7 +36,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-credentials": "*"
   },
   "keywords": [
     "deepseek-harness",

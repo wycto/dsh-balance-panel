@@ -2,7 +2,7 @@
  * dsh-balance-panel — 浏览器半身源码。
  *
  * 纯 JS（React.createElement，无 JSX），只 `require('react')`（web 平台 seed）。
- * 数据通过同源 `fetch('/model-balance')` 获取（Host 半身注册的路由），
+ * 数据通过同源 `fetch('/dsh-balance-panel')` 获取（Host 半身注册的路由），
  * 因此不依赖 connection RPC，任何回环部署都能直接工作。
  *
  * 构建：`node scripts/build-client.mjs` → lib/client.js（__ModuleLoader__ 格式）。
@@ -59,7 +59,7 @@ async function load() {
   if (store.get().loading) return
   store.set({ loading: true, error: null })
   try {
-    const res = await fetch('/model-balance', { signal: AbortSignal.timeout(20000) })
+    const res = await fetch('/dsh-balance-panel', { signal: AbortSignal.timeout(20000) })
     const result = await res.json()
     store.set({
       data: result,

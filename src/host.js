@@ -6,7 +6,7 @@
  *  2. 通过凭证服务解析每个 Provider 的 API Key（密钥全程留在进程内，不出 Host）；
  *  3. 按余额策略查询各账号余额/配额（内置 DeepSeek / StepFun / Kimi / OpenRouter /
  *     MiniMax / xAI 策略 + profile.balance 自定义 + 登录跳转）；
- *  4. 在回环 webServer 上注册 GET /model-balance，返回归一化的 JSON 给浏览器半身。
+ *  4. 在回环 webServer 上注册 GET /dsh-balance-panel，返回归一化的 JSON 给浏览器半身。
  *
  * 依赖：webServer（硬依赖），settings / llm / credentials / agentDefaultModel（可选）。
  *
@@ -507,7 +507,7 @@ function sendJson(res, status, value) {
   res.end(JSON.stringify(value))
 }
 
-/** 插件主体：挂载 /model-balance 路由。 */
+/** 插件主体：挂载 /dsh-balance-panel 路由。 */
 export function apply(ctx) {
   const handler = async (req, res) => {
     try {
@@ -521,7 +521,7 @@ export function apply(ctx) {
   }
   ctx.webServer.register({
     kind: 'exact',
-    path: '/model-balance',
+    path: '/dsh-balance-panel',
     handler,
   })
 }
