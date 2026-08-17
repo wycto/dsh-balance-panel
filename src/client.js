@@ -99,7 +99,7 @@ const CSS = '' +
   '.mb-card-head{justify-content:space-between;align-items:center;gap:10px;display:flex;flex-wrap:wrap}' +
   '.mb-card-title{font-size:14px;font-weight:600}' +
   '.mb-card-body{margin-top:6px}' +
-  '.mb-pill{box-sizing:border-box;cursor:pointer;height:26px;color:var(--dsw-alias-label-primary,#e8e8ea);background:var(--dsw-alias-button-elevated-fill,#26262b);border:1px solid var(--dsw-alias-border-l2,#3a3a42);border-radius:8px;align-items:center;gap:4px;margin:0;padding:0 8px;font-family:inherit;font-size:11px;line-height:16px;display:inline-flex;white-space:nowrap;overflow:hidden;max-width:132px}' +
+  '.mb-pill{box-sizing:border-box;cursor:pointer;height:22px;color:var(--dsw-alias-label-primary,#e8e8ea);background:var(--dsw-alias-button-elevated-fill,#26262b);border:1px solid var(--dsw-alias-border-l2,#3a3a42);border-radius:6px;align-items:center;gap:3px;margin:0;padding:0 6px;font-family:inherit;font-size:10px;line-height:14px;display:inline-flex;white-space:nowrap;overflow:hidden;max-width:108px}' +
   '.mb-pill-rail{width:32px;max-width:32px;padding:0;justify-content:center}' +
   '.mb-pill:hover{background:var(--dsw-alias-button-floating-hover,#33333b)}' +
   '.mb-pill.mb-error{color:var(--dsw-alias-state-error-primary,#f87171)}' +
