@@ -1,6 +1,6 @@
 {
   "name": "dsh-balance-panel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness plugin: 在侧边栏展示当前 DSH 中配置的所有模型 Provider 的账号余额（余额面板 + 底部快捷入口）",
   "type": "module",
   "main": "lib/host.js",
@@ -33,10 +33,6 @@
         "@deepseek-ai/dsh-client-web-react"
       ]
     }
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-credentials": "*"
   },
   "keywords": [
     "deepseek-harness",
