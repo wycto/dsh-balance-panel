@@ -15,9 +15,10 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8')
+const { name } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 const wrapped = `window.__ModuleLoader__.load({
-\tid: "dsh-balance-panel",
+\tid: ${JSON.stringify(name)},
 \tfactory: (require) => {
 \t\tvar module = { exports: {} };
 \t\tvar exports = module.exports;
